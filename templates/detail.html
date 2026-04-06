@@ -1,21 +1,30 @@
 {% extends "base.html" %}
 {% block content %}
-<main class="detail-grid">
-  <section class="panel">
+<main class="detail-layout">
+  <section class="panel summary-panel">
     <div class="panel-header">
-      <h2>{{ record.home_team }} vs {{ record.away_team }}</h2>
-      <span class="prediction-pill">{{ record.prediction }}</span>
+      <div>
+        <p class="mini-label">Stored matchup</p>
+        <h2>{{ record.home_team }} vs {{ record.away_team }}</h2>
+      </div>
+      <div class="prediction-badge">{{ record.prediction }}</div>
     </div>
-    <div class="meta-stack">
-      <div><strong>Saved:</strong> {{ record.created_at }}</div>
-      <div><strong>Fixture:</strong> {{ record.fixture_utc_date }}</div>
-    </div>
-  </section>
 
-  <section class="panel">
-    <div class="panel-header">
-      <h2>Probabilities</h2>
+    <div class="snapshot-ribbon">
+      <div class="snapshot-box">
+        <span class="mini-label">Home snapshot</span>
+        <strong>{{ record.home_snapshot_label }}</strong>
+      </div>
+      <div class="snapshot-box">
+        <span class="mini-label">Away snapshot</span>
+        <strong>{{ record.away_snapshot_label }}</strong>
+      </div>
+      <div class="snapshot-box">
+        <span class="mini-label">Reference date</span>
+        <strong>{{ record.fixture_utc_date }}</strong>
+      </div>
     </div>
+
     <div class="probability-grid">
       {% for label, value in record.probabilities.items() %}
       <div class="probability-card">
@@ -28,14 +37,20 @@
 
   <section class="panel">
     <div class="panel-header">
-      <h2>Feature Snapshot</h2>
+      <div>
+        <p class="mini-label">Model features</p>
+        <h2>Feature snapshot</h2>
+      </div>
     </div>
     <pre class="json-block">{{ record.features | tojson(indent=2) }}</pre>
   </section>
 
   <section class="panel">
     <div class="panel-header">
-      <h2>Stored Match Context</h2>
+      <div>
+        <p class="mini-label">Source context</p>
+        <h2>Stored matchup context</h2>
+      </div>
     </div>
     <pre class="json-block">{{ record.summary | tojson(indent=2) }}</pre>
   </section>

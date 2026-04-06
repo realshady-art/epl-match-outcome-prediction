@@ -1,73 +1,162 @@
 {% extends "base.html" %}
 {% block content %}
-<main class="grid">
-  <section class="panel action-panel">
+<main class="dashboard-grid">
+  <section class="panel pitch-panel">
     <div class="panel-header">
-      <h2>Predict a Match</h2>
-      <span class="status-chip {{ 'ready' if model_ready else 'warn' }}">
-        {{ 'Model Ready' if model_ready else 'Training Required' }}
-      </span>
+      <div>
+        <p class="mini-label">Prediction console</p>
+        <h2>Build a matchup from two team snapshots</h2>
+      </div>
+      <div class="chip">Stored to timeline</div>
     </div>
-    <form class="predict-form" action="{{ url_for('predict_view') }}" method="post">
-      <label>
-        Home team
-        <input list="teams" name="home_team" placeholder="Arsenal" required>
-      </label>
-      <label>
-        Away team
-        <input list="teams" name="away_team" placeholder="Chelsea" required>
-      </label>
-      <datalist id="teams">
-        {% for team in teams %}
-        <option value="{{ team }}"></option>
-        {% endfor %}
-      </datalist>
-      <button type="submit">Predict</button>
+
+    <form class="match-form" action="{{ url_for('predict_view') }}" method="post" data-predict-form>
+      <div class="pitch">
+        <div class="pitch-line center"></div>
+        <div class="pitch-circle"></div>
+
+        <section class="team-card home-team">
+          <div class="team-card-head">
+            <span class="side-tag home">Home side</span>
+            <span class="mini-label">Snapshot A</span>
+          </div>
+          <label>
+            <span>Club</span>
+            <select name="home_team" required>
+              <option value="">Select a club</option>
+              {% for team in teams %}
+              <option value="{{ team }}" {% if form_data.home_team == team %}selected{% endif %}>{{ team }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label class="snapshot-controls">
+            <span>Mode</span>
+            <select name="home_snapshot_mode" data-snapshot-mode="home">
+              <option value="now" {% if form_data.home_snapshot_mode != 'historical' %}selected{% endif %}>Now</option>
+              <option value="historical" {% if form_data.home_snapshot_mode == 'historical' %}selected{% endif %}>Historical month</option>
+            </select>
+          </label>
+          <label class="month-field" data-month-field="home" {% if form_data.home_snapshot_mode != 'historical' %}data-disabled="true"{% endif %}>
+            <span>Month</span>
+            <input
+              type="month"
+              name="home_snapshot_month"
+              value="{{ form_data.home_snapshot_month }}"
+              {% if form_data.home_snapshot_mode != 'historical' %}disabled{% else %}required{% endif %}
+            >
+          </label>
+        </section>
+
+        <div class="versus-marker">
+          <span>VS</span>
+        </div>
+
+        <section class="team-card away-team">
+          <div class="team-card-head">
+            <span class="side-tag away">Away side</span>
+            <span class="mini-label">Snapshot B</span>
+          </div>
+          <label>
+            <span>Club</span>
+            <select name="away_team" required>
+              <option value="">Select a club</option>
+              {% for team in teams %}
+              <option value="{{ team }}" {% if form_data.away_team == team %}selected{% endif %}>{{ team }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label class="snapshot-controls">
+            <span>Mode</span>
+            <select name="away_snapshot_mode" data-snapshot-mode="away">
+              <option value="now" {% if form_data.away_snapshot_mode != 'historical' %}selected{% endif %}>Now</option>
+              <option value="historical" {% if form_data.away_snapshot_mode == 'historical' %}selected{% endif %}>Historical month</option>
+            </select>
+          </label>
+          <label class="month-field" data-month-field="away" {% if form_data.away_snapshot_mode != 'historical' %}data-disabled="true"{% endif %}>
+            <span>Month</span>
+            <input
+              type="month"
+              name="away_snapshot_month"
+              value="{{ form_data.away_snapshot_month }}"
+              {% if form_data.away_snapshot_mode != 'historical' %}disabled{% else %}required{% endif %}
+            >
+          </label>
+        </section>
+      </div>
+
+      {% if error %}
+      <p class="error-banner">{{ error }}</p>
+      {% endif %}
+
+      <div class="form-footer">
+        <p class="helper-copy">
+          Blank month fields are valid only when the snapshot mode is set to <strong>Now</strong>. Historical snapshots
+          are interpreted at month-end so January 2025 means the team state at the close of that month.
+        </p>
+        <button class="primary-button" type="submit" data-submit-button>Predict Winning Probability</button>
+      </div>
     </form>
-    {% if error %}
-    <p class="error-banner">{{ error }}</p>
-    {% endif %}
-    <div class="micro-copy">
-      <p>Uses the trained historical model plus current 2025/26 form, recent head-to-head context, and rest-day signals.</p>
-    </div>
   </section>
 
-  <section class="panel highlight-panel">
+  <section class="panel result-panel">
     <div class="panel-header">
-      <h2>Latest Stored Prediction</h2>
-      <span class="clock" data-live-clock></span>
+      <div>
+        <p class="mini-label">Latest stored result</p>
+        <h2>Match card</h2>
+      </div>
+      <div class="chip ghost">Auto saved</div>
     </div>
+
     {% if latest_result %}
-    <a class="result-card" href="{{ url_for('prediction_detail', record_id=latest_result.id) }}">
-      <div class="fixture-line">{{ latest_result.home_team }} vs {{ latest_result.away_team }}</div>
-      <div class="prediction-pill">{{ latest_result.prediction }}</div>
-      <div class="meta-line">
-        <span>Fixture {{ latest_result.fixture_utc_date }}</span>
+    <a class="latest-card" href="{{ url_for('prediction_detail', record_id=latest_result.id) }}">
+      <div class="latest-topline">
+        <span>{{ latest_result.home_snapshot_label }}</span>
+        <span>{{ latest_result.away_snapshot_label }}</span>
+      </div>
+      <div class="latest-fixture">{{ latest_result.home_team }} <em>vs</em> {{ latest_result.away_team }}</div>
+      <div class="prediction-badge">{{ latest_result.prediction }}</div>
+      <div class="probability-row">
+        {% for label, value in latest_result.probabilities.items() %}
+        <div class="probability-pill">
+          <span>{{ label }}</span>
+          <strong>{{ "%.0f"|format(value * 100) }}%</strong>
+        </div>
+        {% endfor %}
+      </div>
+      <div class="latest-meta">
+        <span>Reference {{ latest_result.fixture_utc_date }}</span>
         <span>Saved {{ latest_result.created_at }}</span>
       </div>
     </a>
     {% else %}
-    <div class="empty-state">No predictions stored yet. Submit one to start the timeline.</div>
+    <div class="empty-state">No predictions stored yet. The first saved prediction becomes the active match card.</div>
     {% endif %}
   </section>
 
   <section class="panel timeline-panel">
     <div class="panel-header">
-      <h2>Live Timeline</h2>
-      <span class="status-chip ready">Auto Refresh</span>
+      <div>
+        <p class="mini-label">Live event feed</p>
+        <h2>Prediction timeline</h2>
+      </div>
+      <div class="chip">Refreshes every 15s</div>
     </div>
+
     <div id="timeline" class="timeline-list" data-timeline>
       {% for item in recent_predictions %}
       <a class="timeline-item" href="{{ url_for('prediction_detail', record_id=item.id) }}">
-        <div class="timeline-marker"></div>
+        <div class="timeline-minute">{{ loop.index }}</div>
         <div class="timeline-content">
           <div class="timeline-title">{{ item.home_team }} vs {{ item.away_team }}</div>
-          <div class="timeline-subtitle">Prediction: {{ item.prediction }}</div>
-          <div class="timeline-meta">{{ item.created_at }}</div>
+          <div class="timeline-snapshots">{{ item.home_snapshot_label }} | {{ item.away_snapshot_label }}</div>
+          <div class="timeline-meta">
+            <span>Prediction {{ item.prediction }}</span>
+            <span>{{ item.created_at }}</span>
+          </div>
         </div>
       </a>
       {% else %}
-      <div class="empty-state">The timeline will populate after the first prediction is saved.</div>
+      <div class="empty-state">The timeline populates after the first prediction is written to the local archive.</div>
       {% endfor %}
     </div>
   </section>

@@ -1,17 +1,28 @@
 {% extends "base.html" %}
 {% block content %}
-<main class="panel history-panel">
+<main class="panel archive-panel">
   <div class="panel-header">
-    <h2>Prediction History</h2>
-    <span class="status-chip ready">{{ records|length }} stored</span>
+    <div>
+      <p class="mini-label">Prediction archive</p>
+      <h2>Stored matchup ledger</h2>
+    </div>
+    <div class="chip">{{ record_count }} records</div>
   </div>
-  <div class="history-table">
+
+  <div class="ledger-head">
+    <span>Fixture</span>
+    <span>Snapshots</span>
+    <span>Prediction</span>
+    <span>Saved</span>
+  </div>
+
+  <div class="ledger-list">
     {% for item in records %}
-    <a class="history-row" href="{{ url_for('prediction_detail', record_id=item.id) }}">
+    <a class="ledger-row" href="{{ url_for('prediction_detail', record_id=item.id) }}">
+      <span class="fixture-label">{{ item.home_team }} vs {{ item.away_team }}</span>
+      <span>{{ item.home_snapshot_label }} / {{ item.away_snapshot_label }}</span>
+      <span class="accent-pill">{{ item.prediction }}</span>
       <span>{{ item.created_at }}</span>
-      <span>{{ item.home_team }} vs {{ item.away_team }}</span>
-      <span>{{ item.prediction }}</span>
-      <span>{{ item.fixture_utc_date }}</span>
     </a>
     {% else %}
     <div class="empty-state">No predictions stored yet.</div>

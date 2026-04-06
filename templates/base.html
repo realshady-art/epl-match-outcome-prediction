@@ -7,18 +7,53 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
   </head>
   <body>
+    <div class="stadium-shell"></div>
     <div class="page-shell">
       <header class="hero">
-        <div>
-          <p class="eyebrow">EPL 2025/26</p>
-          <h1>Match Board</h1>
-          <p class="hero-copy">Predict outcomes from live team form, recent head-to-head records, and rest-day context. Every prediction is stored and rendered on a live timeline.</p>
+        <div class="hero-topbar">
+          <a class="brand" href="{{ url_for('index') }}">
+            <span class="brand-mark">MB</span>
+            <span class="brand-copy">
+              <span class="eyebrow">Premier League Snapshot Engine</span>
+              <strong>Match Board</strong>
+            </span>
+          </a>
+          <nav class="hero-nav">
+            <a href="{{ url_for('index') }}">Predict</a>
+            <a href="{{ url_for('history') }}">Archive</a>
+          </nav>
+          <div class="status-board {{ 'ready' if model_ready else 'warn' }}">
+            <span class="status-dot"></span>
+            {{ 'Model Ready' if model_ready else 'Training Required' }}
+          </div>
         </div>
-        <nav class="hero-nav">
-          <a href="{{ url_for('index') }}">Predict</a>
-          <a href="{{ url_for('history') }}">History</a>
-        </nav>
+
+        <div class="hero-main">
+          <div class="hero-copy">
+            <p class="eyebrow">Football-first workflow</p>
+            <h1>Compare any two EPL team snapshots.</h1>
+            <p class="hero-text">
+              Predict with club identity and time context together. Use <strong>now</strong> for live form,
+              or lock each side to a historical month such as <strong>Jan 2025</strong> or <strong>May 2023</strong>.
+            </p>
+          </div>
+          <div class="hero-scoreboard">
+            <div class="score-panel">
+              <span class="mini-label">Input mode</span>
+              <strong>Team + month</strong>
+            </div>
+            <div class="score-panel">
+              <span class="mini-label">Features</span>
+              <strong>Form, H2H, rest</strong>
+            </div>
+            <div class="score-panel live">
+              <span class="mini-label">Clock</span>
+              <strong data-live-clock>--:--:--</strong>
+            </div>
+          </div>
+        </div>
       </header>
+
       {% block content %}{% endblock %}
     </div>
     <script src="{{ url_for('static', filename='app.js') }}"></script>

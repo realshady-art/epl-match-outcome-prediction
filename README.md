@@ -1,16 +1,16 @@
-# EPL 2025/26 Match Outcome Prediction
+# Match Board: EPL Snapshot Outcome Prediction
 
-Python project for predicting English Premier League match outcomes for the 2025/26 season. The model is trained on historical EPL data, while each prediction uses fresh pre-match context for the two requested teams. A graphical interface can be added later on top of the prediction service.
+Match Board is a Flask-based EPL prediction app for comparing two team snapshots. The model is trained on historical Premier League data, while each prediction assembles fresh pre-match context for a home-side snapshot and an away-side snapshot. Each side can use the latest available form with `now`, or a historical month such as `2025-01` or `2023-05`.
 
 ## Scope
 
 - Competition: English Premier League
-- Prediction season: 2025/26 only
-- Training data: historical EPL data from prior seasons
+- Prediction surface: current or historical EPL team snapshots
+- Training data: historical EPL data from prior seasons, plus current-season form for `now`
 - Target: `H` / `D` / `A` for home win, draw, away win
 - Constraint: use only information available before kickoff
 
-## What This Starter Includes
+## Current Feature Set
 
 - Historical CSV training pipeline
 - Match table cleaning and schema normalization
@@ -19,8 +19,11 @@ Python project for predicting English Premier League match outcomes for the 2025
 - Baseline models
 - Logistic Regression and Random Forest training
 - Metric reporting and artifact export
-- Prediction service skeleton for 2025/26 fixtures
-- Local cache skeleton for reducing repeated API calls
+- Snapshot-aware prediction service
+- Local cache for reducing repeated data pulls
+- Flask GUI with football-themed timeline and local archive
+- Team dropdown selection instead of free-text club input
+- Independent snapshot mode selectors for home and away sides
 
 ## Suggested Dataset
 
@@ -105,11 +108,11 @@ The training pipeline creates pre-match features such as:
 - rank difference
 - match month
 
-The prediction service is designed to combine the trained model with fresh 2025/26 match context for the requested teams. The first live prediction version will focus on:
+The prediction service combines the trained model with fresh team context for the requested snapshots. The first live prediction version focuses on:
 
 - last 5 match results for each team
 - recent head-to-head results
-- rest days before the fixture
+- rest days before the comparison point
 
 The project avoids leakage by computing features from information available before the current fixture.
 
@@ -137,7 +140,7 @@ Default training split:
 
 You can edit these values in `src/config.py`.
 
-The target prediction season is configured separately as `2025-2026`.
+The current-season live source is configured as `2025-2026`, but user requests can also point at historical months.
 
 ## Output Files
 
@@ -160,7 +163,7 @@ pip install -r requirements.txt
 
 ## Live Data Setup
 
-The live prediction service uses the current-season EPL CSV from `football-data.co.uk`.
+The live prediction service uses the current-season EPL CSV from `football-data.co.uk`, then merges it with historical CSVs to support arbitrary snapshot dates.
 
 On the first prediction run, the provider downloads:
 
@@ -168,12 +171,12 @@ On the first prediction run, the provider downloads:
 
 It refreshes the file when the local copy is older than six hours.
 
-The live provider is intentionally limited to:
+The snapshot provider is intentionally limited to:
 
-- upcoming EPL 2025/26 fixtures found in the current-season CSV
-- each team's last 5 finished EPL matches from the same season
-- recent head-to-head results computed from the historical training data plus finished 2025/26 matches
-- rest days based on the target fixture date
+- each team's last 5 finished EPL matches prior to the requested snapshot
+- rank and rest-day context from the snapshot season
+- recent head-to-head results computed before the earlier of the two snapshot dates
+- `now`, `YYYY-MM`, or `YYYY-MM-DD` snapshot inputs
 
 ## Run
 
@@ -181,6 +184,7 @@ The live provider is intentionally limited to:
 python3 main.py fetch-data
 python3 main.py train
 python3 main.py predict --home Arsenal --away Chelsea
+python3 main.py predict --home Arsenal --away "Man United" --home-date 2025-01 --away-date 2023-05
 python3 main.py gui
 ```
 
@@ -192,7 +196,10 @@ The local GUI runs on Flask with a SQLite backend.
 
 Features included in V1:
 
-- clean web form for home and away team input
+- football-themed web form with a pitch-style matchup layout
+- dropdown-based team selection for both sides
+- independent `now` or `historical month` controls for each side
+- automatic month-field enable/disable based on snapshot mode
 - prediction result page with probability breakdown
 - backend storage of each prediction request
 - history page for previously stored predictions
@@ -218,10 +225,17 @@ http://127.0.0.1:5000
 - add xG or shot-based features
 - build a simple GUI around the prediction service
 
-## Resume-Oriented Goal
+## Project Description
 
-Once real data is loaded and evaluated, this project should support a bullet like:
+This project now targets a more flexible prediction surface than a single live fixture workflow. Instead of only asking for the next scheduled match, Match Board compares:
 
-Built an EPL 2025/26 match prediction pipeline trained on historical league data and enriched with fresh pre-match team context, including recent form, head-to-head results, and rest-day features.
+- `Team A` at `now` or a historical month
+- `Team B` at `now` or a historical month
 
-Evaluated baseline and machine learning models on season-based holdout data and designed a cached prediction service to reduce repeated API calls during live fixture prediction.
+The prediction service then computes:
+
+- recent form over the last 3 and 5 matches
+- head-to-head context before the comparison cutoff
+- rest-day and rank context at the selected snapshot
+
+The Flask GUI is designed as a football product rather than a generic dashboard, with a pitch-driven input layout, a live prediction timeline, and a local archive of stored matchup snapshots.

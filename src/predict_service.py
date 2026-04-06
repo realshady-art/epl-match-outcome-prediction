@@ -10,7 +10,7 @@ import pandas as pd
 from src.cache_manager import CacheManager
 from src.config import CACHE_TTL_HOURS, OUTPUT_MODELS_DIR, TARGET_SEASON
 from src.features import get_feature_columns
-from src.live_data_provider import FootballDataCsvProvider, FixtureContext, LiveDataProvider
+from src.live_data_provider import FootballDataCsvProvider, LiveDataProvider, MatchupContext
 
 
 def _model_path(model_name: str = "logistic_regression") -> Path:
@@ -18,7 +18,7 @@ def _model_path(model_name: str = "logistic_regression") -> Path:
 
 
 def _build_live_feature_row(
-    fixture: FixtureContext,
+    fixture: MatchupContext,
     home_data: dict[str, Any],
     away_data: dict[str, Any],
     h2h_data: dict[str, Any],
@@ -30,7 +30,7 @@ def _build_live_feature_row(
         "home_rest_days": home_data["rest_days"],
         "away_rest_days": away_data["rest_days"],
         "rest_days_diff": home_data["rest_days"] - away_data["rest_days"],
-        "match_month": int(fixture.fixture_utc_date[5:7]),
+        "match_month": fixture.comparison_month,
         "head_to_head_home_points_last_3": h2h_data["home_points_last_3"],
         "head_to_head_away_points_last_3": h2h_data["away_points_last_3"],
         "head_to_head_home_goal_diff_last_3": h2h_data["home_goal_diff_last_3"],
@@ -71,6 +71,8 @@ def _build_live_feature_row(
 def predict_match(
     home_team: str,
     away_team: str,
+    home_snapshot: str = "now",
+    away_snapshot: str = "now",
     provider: LiveDataProvider | None = None,
     cache: CacheManager | None = None,
     model_name: str = "logistic_regression",
@@ -78,18 +80,20 @@ def predict_match(
     provider = provider or FootballDataCsvProvider()
     cache = cache or CacheManager()
 
-    fixture_key = f"{home_team}__{away_team}"
+    fixture_key = f"{home_team}__{home_snapshot}__{away_team}__{away_snapshot}"
     fixture_data = cache.load("fixture", fixture_key, CACHE_TTL_HOURS["fixture"])
     if fixture_data is None:
-        fixture = provider.get_fixture_context(home_team, away_team)
+        fixture = provider.get_matchup_context(home_team, away_team, home_snapshot=home_snapshot, away_snapshot=away_snapshot)
         fixture_data = asdict(fixture)
         cache.store("fixture", fixture_key, fixture_data)
-    fixture = FixtureContext(**fixture_data)
+    fixture = MatchupContext(**fixture_data)
 
-    fixture_day = fixture.fixture_utc_date[:10]
-    home_key = f"{fixture.home_team_id}__{fixture_day}"
-    away_key = f"{fixture.away_team_id}__{fixture_day}"
-    h2h_key = f"{fixture.home_team_id}__{fixture.away_team_id}__{fixture_day}"
+    home_key = f"{fixture.home_team_id}__{fixture.home_snapshot_label}"
+    away_key = f"{fixture.away_team_id}__{fixture.away_snapshot_label}"
+    h2h_key = (
+        f"{fixture.home_team_id}__{fixture.home_snapshot_label}__"
+        f"{fixture.away_team_id}__{fixture.away_snapshot_label}"
+    )
 
     home_data = cache.load("team_form", home_key, CACHE_TTL_HOURS["team_form"])
     if home_data is None:
@@ -97,7 +101,7 @@ def predict_match(
             provider.get_team_recent_form(
                 fixture.home_team,
                 fixture.home_team_id,
-                fixture.fixture_utc_date,
+                home_snapshot,
             )
         )
         cache.store("team_form", home_key, home_data)
@@ -108,7 +112,7 @@ def predict_match(
             provider.get_team_recent_form(
                 fixture.away_team,
                 fixture.away_team_id,
-                fixture.fixture_utc_date,
+                away_snapshot,
             )
         )
         cache.store("team_form", away_key, away_data)
@@ -121,7 +125,8 @@ def predict_match(
                 fixture.away_team,
                 fixture.home_team_id,
                 fixture.away_team_id,
-                fixture.fixture_utc_date,
+                home_snapshot,
+                away_snapshot,
             )
         )
         cache.store("head_to_head", h2h_key, h2h_data)
@@ -134,11 +139,13 @@ def predict_match(
         "season": TARGET_SEASON,
         "home_team": fixture.home_team,
         "away_team": fixture.away_team,
-        "fixture_utc_date": fixture.fixture_utc_date,
+        "home_snapshot_label": fixture.home_snapshot_label,
+        "away_snapshot_label": fixture.away_snapshot_label,
+        "fixture_utc_date": fixture.comparison_utc_date,
         "prediction": prediction,
         "features_used": X_live.to_dict(orient="records")[0],
         "data_summary": {
-            "fixture": fixture_data,
+            "matchup": fixture_data,
             "home_recent_form": home_data,
             "away_recent_form": away_data,
             "head_to_head": h2h_data,

@@ -11,14 +11,13 @@ import requests
 from src.config import (
     DATE_COLUMN,
     HOME_TEAM_COLUMN,
-    AWAY_TEAM_COLUMN,
-    LIVE_COMPETITION_CODE,
     LIVE_DATA_DIR,
     LIVE_DATA_FILENAME,
     LIVE_DATA_URL,
-    LIVE_SEASON_CODE,
+    SEASON_COLUMN,
     TARGET_COLUMN,
     TARGET_SEASON,
+    AWAY_TEAM_COLUMN,
 )
 from src.data_loader import load_all_raw_data
 from src.features import _points_from_result
@@ -26,21 +25,26 @@ from src.utils import ensure_directories
 
 
 @dataclass
-class FixtureContext:
+class MatchupContext:
     home_team: str
     away_team: str
     home_team_id: int
     away_team_id: int
-    fixture_utc_date: str
+    home_snapshot_label: str
+    away_snapshot_label: str
+    comparison_utc_date: str
     season: str
     home_rank: int
     away_rank: int
+    comparison_month: int
 
 
 @dataclass
 class TeamRecentForm:
     team: str
     team_id: int
+    snapshot_label: str
+    season: str
     wins_last_3: int
     draws_last_3: int
     losses_last_3: int
@@ -62,6 +66,7 @@ class TeamRecentForm:
 class HeadToHeadSummary:
     home_team: str
     away_team: str
+    cutoff_label: str
     home_points_last_3: int
     away_points_last_3: int
     home_goal_diff_last_3: int
@@ -69,10 +74,19 @@ class HeadToHeadSummary:
 
 
 class LiveDataProvider(Protocol):
-    def get_fixture_context(self, home_team: str, away_team: str) -> FixtureContext:
+    def available_teams(self) -> list[str]:
         ...
 
-    def get_team_recent_form(self, team_name: str, team_id: int, fixture_utc_date: str) -> TeamRecentForm:
+    def get_matchup_context(
+        self,
+        home_team: str,
+        away_team: str,
+        home_snapshot: str = "now",
+        away_snapshot: str = "now",
+    ) -> MatchupContext:
+        ...
+
+    def get_team_recent_form(self, team_name: str, team_id: int, snapshot_value: str) -> TeamRecentForm:
         ...
 
     def get_head_to_head_summary(
@@ -81,7 +95,8 @@ class LiveDataProvider(Protocol):
         away_team: str,
         home_team_id: int,
         away_team_id: int,
-        fixture_utc_date: str,
+        home_snapshot: str,
+        away_snapshot: str,
     ) -> HeadToHeadSummary:
         ...
 
@@ -91,7 +106,7 @@ class LiveDataProviderError(RuntimeError):
 
 
 class FootballDataCsvProvider:
-    """Live EPL data provider backed by football-data.co.uk current-season CSV."""
+    """Snapshot-based provider backed by historical EPL CSVs plus the current-season CSV."""
 
     TEAM_ALIASES = {
         "man city": "Man City",
@@ -107,81 +122,81 @@ class FootballDataCsvProvider:
         "wolverhampton wanderers": "Wolves",
         "nottingham forest": "Nott'm Forest",
         "forest": "Nott'm Forest",
+        "sheffield united": "Sheffield United",
+        "ipswich town": "Ipswich",
+        "leicester city": "Leicester",
+        "west brom": "West Brom",
+        "brighton": "Brighton",
+        "brighton & hove albion": "Brighton",
     }
 
     def __init__(self, live_csv_path: Path | None = None) -> None:
         self.live_csv_path = live_csv_path or (LIVE_DATA_DIR / LIVE_DATA_FILENAME)
         self._live_df: pd.DataFrame | None = None
         self._historical_df: pd.DataFrame | None = None
+        self._all_matches_df: pd.DataFrame | None = None
         self._team_ids: dict[str, int] = {}
 
     def available_teams(self) -> list[str]:
-        teams = sorted(set(self._get_live_df()[HOME_TEAM_COLUMN]).union(set(self._get_live_df()[AWAY_TEAM_COLUMN])))
-        return teams
+        frame = self._get_all_matches_df()
+        return sorted(set(frame[HOME_TEAM_COLUMN]).union(set(frame[AWAY_TEAM_COLUMN])))
 
-    def get_fixture_context(self, home_team: str, away_team: str) -> FixtureContext:
-        live_df = self._get_live_df()
+    def get_matchup_context(
+        self,
+        home_team: str,
+        away_team: str,
+        home_snapshot: str = "now",
+        away_snapshot: str = "now",
+    ) -> MatchupContext:
         resolved_home = self._resolve_team_name(home_team)
         resolved_away = self._resolve_team_name(away_team)
-        fixture = live_df[
-            (live_df[HOME_TEAM_COLUMN] == resolved_home)
-            & (live_df[AWAY_TEAM_COLUMN] == resolved_away)
-            & (live_df[TARGET_COLUMN].isna())
-        ].sort_values(DATE_COLUMN)
-        if fixture.empty:
-            latest_completed = live_df.loc[live_df[TARGET_COLUMN].notna(), DATE_COLUMN].max()
-            if pd.isna(latest_completed):
-                raise LiveDataProviderError("Live season file has no completed matches to anchor a prediction date.")
-            synthetic_date = latest_completed + pd.Timedelta(days=7)
-            standings = self._compute_current_standings(live_df, synthetic_date)
-            return FixtureContext(
-                home_team=resolved_home,
-                away_team=resolved_away,
-                home_team_id=self._team_id(resolved_home),
-                away_team_id=self._team_id(resolved_away),
-                fixture_utc_date=self._to_utc_date_string(synthetic_date),
-                season=TARGET_SEASON,
-                home_rank=standings.get(resolved_home, 0),
-                away_rank=standings.get(resolved_away, 0),
-            )
+        home_label, home_cutoff = self._parse_snapshot_input(home_snapshot)
+        away_label, away_cutoff = self._parse_snapshot_input(away_snapshot)
 
-        row = fixture.iloc[0]
-        standings = self._compute_current_standings(live_df, row[DATE_COLUMN])
-        home_name = str(row[HOME_TEAM_COLUMN])
-        away_name = str(row[AWAY_TEAM_COLUMN])
+        home_form = self.get_team_recent_form(resolved_home, self._team_id(resolved_home), home_snapshot)
+        away_form = self.get_team_recent_form(resolved_away, self._team_id(resolved_away), away_snapshot)
 
-        return FixtureContext(
-            home_team=home_name,
-            away_team=away_name,
-            home_team_id=self._team_id(home_name),
-            away_team_id=self._team_id(away_name),
-            fixture_utc_date=self._to_utc_date_string(row[DATE_COLUMN]),
+        comparison_cutoff = max(home_cutoff, away_cutoff)
+        comparison_display = self._to_utc_date_string(pd.Timestamp(comparison_cutoff - timedelta(days=1)))
+
+        return MatchupContext(
+            home_team=resolved_home,
+            away_team=resolved_away,
+            home_team_id=self._team_id(resolved_home),
+            away_team_id=self._team_id(resolved_away),
+            home_snapshot_label=home_label,
+            away_snapshot_label=away_label,
+            comparison_utc_date=comparison_display,
             season=TARGET_SEASON,
-            home_rank=standings.get(home_name, 0),
-            away_rank=standings.get(away_name, 0),
+            home_rank=home_form.rank,
+            away_rank=away_form.rank,
+            comparison_month=(comparison_cutoff - timedelta(days=1)).month,
         )
 
-    def get_team_recent_form(self, team_name: str, team_id: int, fixture_utc_date: str) -> TeamRecentForm:
+    def get_team_recent_form(self, team_name: str, team_id: int, snapshot_value: str) -> TeamRecentForm:
         del team_id
-        live_df = self._get_live_df()
-        fixture_date = self._parse_utc(fixture_utc_date)
-        finished = self._team_matches_before_fixture(live_df, team_name, fixture_date)
-        if finished.empty:
-            raise LiveDataProviderError(f"No completed {TARGET_SEASON} matches found for {team_name}.")
+        snapshot_label, cutoff = self._parse_snapshot_input(snapshot_value)
+        history = self._team_matches_before_cutoff(self._get_all_matches_df(), team_name, cutoff)
+        if history.empty:
+            raise LiveDataProviderError(f"No completed matches found for {team_name} before {snapshot_label}.")
 
-        last_5 = finished.head(5)
-        last_3 = finished.head(3)
+        active_season = str(history.iloc[0][SEASON_COLUMN])
+        season_history = history.loc[history[SEASON_COLUMN] == active_season]
+        last_5 = season_history.head(5)
+        last_3 = season_history.head(3)
 
         summary_5 = self._summarize_team_matches(last_5, team_name)
         summary_3 = self._summarize_team_matches(last_3, team_name)
 
         last_match_date = last_5.iloc[0][DATE_COLUMN]
-        rest_days = max((fixture_date.date() - last_match_date.date()).days, 0)
-        standings = self._compute_current_standings(live_df, fixture_date)
+        rest_days = max((cutoff.date() - last_match_date.date()).days, 0)
+        standings = self._compute_standings(active_season, cutoff)
 
         return TeamRecentForm(
             team=team_name,
             team_id=self._team_id(team_name),
+            snapshot_label=snapshot_label,
+            season=active_season,
             wins_last_3=summary_3["wins"],
             draws_last_3=summary_3["draws"],
             losses_last_3=summary_3["losses"],
@@ -205,12 +220,16 @@ class FootballDataCsvProvider:
         away_team: str,
         home_team_id: int,
         away_team_id: int,
-        fixture_utc_date: str,
+        home_snapshot: str,
+        away_snapshot: str,
     ) -> HeadToHeadSummary:
         del home_team_id, away_team_id
-        historical = self._get_historical_df()
-        fixture_date = self._parse_utc(fixture_utc_date)
+        home_label, home_cutoff = self._parse_snapshot_input(home_snapshot)
+        away_label, away_cutoff = self._parse_snapshot_input(away_snapshot)
+        comparison_cutoff = min(home_cutoff, away_cutoff)
+        comparison_label = home_label if home_cutoff <= away_cutoff else away_label
 
+        historical = self._get_all_matches_df()
         mask = (
             (
                 (historical[HOME_TEAM_COLUMN] == home_team)
@@ -220,7 +239,7 @@ class FootballDataCsvProvider:
                 (historical[HOME_TEAM_COLUMN] == away_team)
                 & (historical[AWAY_TEAM_COLUMN] == home_team)
             )
-        ) & (historical[DATE_COLUMN] < fixture_date)
+        ) & (historical[DATE_COLUMN] < comparison_cutoff)
 
         recent = historical.loc[mask].sort_values(DATE_COLUMN, ascending=False).head(3)
 
@@ -246,6 +265,7 @@ class FootballDataCsvProvider:
         return HeadToHeadSummary(
             home_team=home_team,
             away_team=away_team,
+            cutoff_label=comparison_label,
             home_points_last_3=home_points,
             away_points_last_3=away_points,
             home_goal_diff_last_3=home_goal_diff,
@@ -257,18 +277,25 @@ class FootballDataCsvProvider:
             self._refresh_live_csv_if_needed()
             df = pd.read_csv(self.live_csv_path)
             df = self._normalize_match_frame(df)
-            df["season"] = TARGET_SEASON
+            df[SEASON_COLUMN] = TARGET_SEASON
             self._live_df = df
         return self._live_df
 
     def _get_historical_df(self) -> pd.DataFrame:
         if self._historical_df is None:
-            historical = load_all_raw_data()
-            live_finished = self._get_live_df().loc[self._get_live_df()[TARGET_COLUMN].notna()].copy()
-            combined = pd.concat([historical, live_finished], ignore_index=True)
-            combined = combined.sort_values(DATE_COLUMN).reset_index(drop=True)
-            self._historical_df = combined
+            self._historical_df = load_all_raw_data()
         return self._historical_df
+
+    def _get_all_matches_df(self) -> pd.DataFrame:
+        if self._all_matches_df is None:
+            live_finished = self._get_live_df().loc[self._get_live_df()[TARGET_COLUMN].notna()].copy()
+            historical = self._get_historical_df()
+            self._all_matches_df = (
+                pd.concat([historical, live_finished], ignore_index=True)
+                .sort_values([DATE_COLUMN, HOME_TEAM_COLUMN, AWAY_TEAM_COLUMN])
+                .reset_index(drop=True)
+            )
+        return self._all_matches_df
 
     def _refresh_live_csv_if_needed(self) -> None:
         ensure_directories([LIVE_DATA_DIR])
@@ -281,18 +308,23 @@ class FootballDataCsvProvider:
             refresh = age > timedelta(hours=6)
 
         if refresh:
-            response = requests.get(LIVE_DATA_URL, timeout=20)
-            response.raise_for_status()
+            try:
+                response = requests.get(LIVE_DATA_URL, timeout=20)
+                response.raise_for_status()
+            except requests.RequestException:
+                if self.live_csv_path.exists():
+                    return
+                raise LiveDataProviderError(
+                    "Could not refresh the current-season CSV and no local live file is available."
+                )
             self.live_csv_path.write_text(response.text, encoding="utf-8")
 
-    def _compute_current_standings(self, live_df: pd.DataFrame, fixture_date: datetime | pd.Timestamp) -> dict[str, int]:
-        if isinstance(fixture_date, pd.Timestamp):
-            fixture_cutoff = fixture_date.to_pydatetime()
-        else:
-            fixture_cutoff = fixture_date
-
-        completed = live_df[
-            live_df[TARGET_COLUMN].notna() & (live_df[DATE_COLUMN] < fixture_cutoff)
+    def _compute_standings(self, season: str, cutoff: datetime) -> dict[str, int]:
+        completed = self._get_all_matches_df()
+        completed = completed[
+            (completed[SEASON_COLUMN] == season)
+            & completed[TARGET_COLUMN].notna()
+            & (completed[DATE_COLUMN] < cutoff)
         ].sort_values(DATE_COLUMN)
 
         table: dict[str, dict[str, int]] = {}
@@ -304,10 +336,8 @@ class FootballDataCsvProvider:
 
             home_goals = int(row["home_goals"])
             away_goals = int(row["away_goals"])
-
             table[home]["points"] += _points_from_result(row[TARGET_COLUMN], "home")
             table[away]["points"] += _points_from_result(row[TARGET_COLUMN], "away")
-
             table[home]["goal_diff"] += home_goals - away_goals
             table[away]["goal_diff"] += away_goals - home_goals
             table[home]["goals_for"] += home_goals
@@ -320,16 +350,13 @@ class FootballDataCsvProvider:
         )
         return {team: idx + 1 for idx, (team, _) in enumerate(ordered)}
 
-    def _team_matches_before_fixture(self, live_df: pd.DataFrame, team_name: str, fixture_date: datetime) -> pd.DataFrame:
+    def _team_matches_before_cutoff(self, matches: pd.DataFrame, team_name: str, cutoff: datetime) -> pd.DataFrame:
         mask = (
-            live_df[TARGET_COLUMN].notna()
-            & (live_df[DATE_COLUMN] < fixture_date)
-            & (
-                (live_df[HOME_TEAM_COLUMN] == team_name)
-                | (live_df[AWAY_TEAM_COLUMN] == team_name)
-            )
+            matches[TARGET_COLUMN].notna()
+            & (matches[DATE_COLUMN] < cutoff)
+            & ((matches[HOME_TEAM_COLUMN] == team_name) | (matches[AWAY_TEAM_COLUMN] == team_name))
         )
-        return live_df.loc[mask].sort_values(DATE_COLUMN, ascending=False)
+        return matches.loc[mask].sort_values(DATE_COLUMN, ascending=False)
 
     def _summarize_team_matches(self, matches: pd.DataFrame, team_name: str) -> dict[str, int]:
         wins = draws = losses = goals_for = goals_against = 0
@@ -357,12 +384,12 @@ class FootballDataCsvProvider:
 
     def _team_id(self, team_name: str) -> int:
         if not self._team_ids:
-            teams = sorted(set(self._get_live_df()[HOME_TEAM_COLUMN]).union(set(self._get_live_df()[AWAY_TEAM_COLUMN])))
+            teams = self.available_teams()
             self._team_ids = {team: idx + 1 for idx, team in enumerate(teams)}
         return self._team_ids[team_name]
 
     def _resolve_team_name(self, team_name: str) -> str:
-        teams = sorted(set(self._get_live_df()[HOME_TEAM_COLUMN]).union(set(self._get_live_df()[AWAY_TEAM_COLUMN])))
+        teams = self.available_teams()
         normalized_map = {team.casefold(): team for team in teams}
         alias = self.TEAM_ALIASES.get(team_name.casefold(), team_name)
         if alias.casefold() in normalized_map:
@@ -372,7 +399,33 @@ class FootballDataCsvProvider:
         if len(partial) == 1:
             return partial[0]
 
-        raise LiveDataProviderError(f"Could not resolve team name from live season data: {team_name}")
+        raise LiveDataProviderError(f"Could not resolve team name from available data: {team_name}")
+
+    def _parse_snapshot_input(self, snapshot_value: str | None) -> tuple[str, datetime]:
+        if snapshot_value is None or not str(snapshot_value).strip() or str(snapshot_value).strip().casefold() == "now":
+            latest_completed = self._get_all_matches_df()[DATE_COLUMN].max()
+            if pd.isna(latest_completed):
+                raise LiveDataProviderError("No completed matches available for snapshot resolution.")
+            cutoff = pd.Timestamp(latest_completed).to_pydatetime() + timedelta(days=1)
+            return "Now", cutoff
+
+        value = str(snapshot_value).strip()
+        if len(value) == 7:
+            try:
+                period = pd.Period(value, freq="M")
+            except ValueError as exc:
+                raise LiveDataProviderError(f"Invalid snapshot month: {snapshot_value}") from exc
+            cutoff = period.to_timestamp(how="end").to_pydatetime().replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
+            return period.strftime("%b %Y"), cutoff
+
+        try:
+            cutoff_date = datetime.fromisoformat(value)
+        except ValueError as exc:
+            raise LiveDataProviderError(
+                f"Invalid snapshot value '{snapshot_value}'. Use 'now', YYYY-MM, or YYYY-MM-DD."
+            ) from exc
+        cutoff = cutoff_date.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
+        return cutoff_date.strftime("%d %b %Y"), cutoff
 
     @staticmethod
     def _normalize_match_frame(df: pd.DataFrame) -> pd.DataFrame:
@@ -396,10 +449,6 @@ class FootballDataCsvProvider:
         return normalized.dropna(subset=[DATE_COLUMN, HOME_TEAM_COLUMN, AWAY_TEAM_COLUMN]).reset_index(drop=True)
 
     @staticmethod
-    def _parse_utc(value: str) -> datetime:
-        return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(timezone.utc).replace(tzinfo=None)
-
-    @staticmethod
-    def _to_utc_date_string(value: pd.Timestamp) -> str:
+    def _to_utc_date_string(value: pd.Timestamp | datetime) -> str:
         dt = pd.Timestamp(value).to_pydatetime().replace(tzinfo=timezone.utc)
         return dt.isoformat().replace("+00:00", "Z")

@@ -25,6 +25,8 @@ def init_db(db_path: Path = DATABASE_PATH) -> None:
                 created_at TEXT NOT NULL,
                 home_team TEXT NOT NULL,
                 away_team TEXT NOT NULL,
+                home_snapshot_label TEXT,
+                away_snapshot_label TEXT,
                 fixture_utc_date TEXT NOT NULL,
                 prediction TEXT NOT NULL,
                 probabilities_json TEXT,
@@ -33,6 +35,14 @@ def init_db(db_path: Path = DATABASE_PATH) -> None:
             )
             """
         )
+        existing_columns = {
+            row["name"]
+            for row in connection.execute("PRAGMA table_info(predictions)").fetchall()
+        }
+        if "home_snapshot_label" not in existing_columns:
+            connection.execute("ALTER TABLE predictions ADD COLUMN home_snapshot_label TEXT")
+        if "away_snapshot_label" not in existing_columns:
+            connection.execute("ALTER TABLE predictions ADD COLUMN away_snapshot_label TEXT")
         connection.commit()
 
 
@@ -41,6 +51,8 @@ def create_prediction_record(
     created_at: str,
     home_team: str,
     away_team: str,
+    home_snapshot_label: str,
+    away_snapshot_label: str,
     fixture_utc_date: str,
     prediction: str,
     probabilities: dict[str, float] | None,
@@ -55,17 +67,21 @@ def create_prediction_record(
                 created_at,
                 home_team,
                 away_team,
+                home_snapshot_label,
+                away_snapshot_label,
                 fixture_utc_date,
                 prediction,
                 probabilities_json,
                 features_json,
                 summary_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 created_at,
                 home_team,
                 away_team,
+                home_snapshot_label,
+                away_snapshot_label,
                 fixture_utc_date,
                 prediction,
                 json.dumps(probabilities or {}),
@@ -81,7 +97,7 @@ def list_prediction_records(limit: int = 50, db_path: Path = DATABASE_PATH) -> l
     with _connect(db_path) as connection:
         rows = connection.execute(
             """
-            SELECT id, created_at, home_team, away_team, fixture_utc_date, prediction, probabilities_json
+            SELECT id, created_at, home_team, away_team, home_snapshot_label, away_snapshot_label, fixture_utc_date, prediction, probabilities_json
             FROM predictions
             ORDER BY created_at DESC, id DESC
             LIMIT ?
@@ -96,6 +112,8 @@ def list_prediction_records(limit: int = 50, db_path: Path = DATABASE_PATH) -> l
                 "created_at": row["created_at"],
                 "home_team": row["home_team"],
                 "away_team": row["away_team"],
+                "home_snapshot_label": row["home_snapshot_label"] or "Now",
+                "away_snapshot_label": row["away_snapshot_label"] or "Now",
                 "fixture_utc_date": row["fixture_utc_date"],
                 "prediction": row["prediction"],
                 "probabilities": json.loads(row["probabilities_json"] or "{}"),
@@ -123,6 +141,8 @@ def get_prediction_record(record_id: int, db_path: Path = DATABASE_PATH) -> dict
         "created_at": row["created_at"],
         "home_team": row["home_team"],
         "away_team": row["away_team"],
+        "home_snapshot_label": row["home_snapshot_label"] or "Now",
+        "away_snapshot_label": row["away_snapshot_label"] or "Now",
         "fixture_utc_date": row["fixture_utc_date"],
         "prediction": row["prediction"],
         "probabilities": json.loads(row["probabilities_json"] or "{}"),

@@ -17,8 +17,13 @@ def run_train() -> None:
     print(metrics.to_string(index=False))
 
 
-def run_predict(home_team: str, away_team: str) -> None:
-    prediction = predict_match(home_team=home_team, away_team=away_team)
+def run_predict(home_team: str, away_team: str, home_snapshot: str, away_snapshot: str) -> None:
+    prediction = predict_match(
+        home_team=home_team,
+        away_team=away_team,
+        home_snapshot=home_snapshot,
+        away_snapshot=away_snapshot,
+    )
     print(json.dumps(prediction, indent=2))
 
 
@@ -47,9 +52,21 @@ def build_parser() -> argparse.ArgumentParser:
     gui_parser.add_argument("--host", default=APP_HOST, help="Host for the local web server")
     gui_parser.add_argument("--port", default=APP_PORT, type=int, help="Port for the local web server")
 
-    predict_parser = subparsers.add_parser("predict", help="Predict a 2025/26 EPL fixture")
+    predict_parser = subparsers.add_parser("predict", help="Predict from two EPL team snapshots")
     predict_parser.add_argument("--home", required=True, dest="home_team", help="Home team name")
     predict_parser.add_argument("--away", required=True, dest="away_team", help="Away team name")
+    predict_parser.add_argument(
+        "--home-date",
+        default="now",
+        dest="home_snapshot",
+        help="Snapshot for the home team: now, YYYY-MM, or YYYY-MM-DD",
+    )
+    predict_parser.add_argument(
+        "--away-date",
+        default="now",
+        dest="away_snapshot",
+        help="Snapshot for the away team: now, YYYY-MM, or YYYY-MM-DD",
+    )
 
     return parser
 
@@ -65,7 +82,12 @@ def main() -> None:
     elif args.command == "gui":
         run_gui(host=args.host, port=args.port)
     elif args.command == "predict":
-        run_predict(home_team=args.home_team, away_team=args.away_team)
+        run_predict(
+            home_team=args.home_team,
+            away_team=args.away_team,
+            home_snapshot=args.home_snapshot,
+            away_snapshot=args.away_snapshot,
+        )
 
 
 if __name__ == "__main__":

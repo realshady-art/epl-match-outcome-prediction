@@ -1,0 +1,829 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Match Board Snapshot Redesign</title>
+    <style>
+      :root {
+        --bg: #07110b;
+        --bg-2: #0c1911;
+        --panel: rgba(12, 27, 18, 0.92);
+        --line: rgba(186, 236, 198, 0.12);
+        --line-strong: rgba(186, 236, 198, 0.28);
+        --text: #edf6ee;
+        --muted: #93aa98;
+        --green: #7ff08e;
+        --amber: #f7c35a;
+        --red: #ff7b6b;
+        --shadow: 0 30px 80px rgba(0, 0, 0, 0.42);
+        --radius-xl: 34px;
+        --radius-lg: 24px;
+        --radius-md: 18px;
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        color: var(--text);
+        font-family: "Aptos", "Trebuchet MS", sans-serif;
+        background:
+          radial-gradient(circle at 18% 12%, rgba(127, 240, 142, 0.14), transparent 24%),
+          radial-gradient(circle at 84% 10%, rgba(247, 195, 90, 0.1), transparent 20%),
+          linear-gradient(180deg, #07110b 0%, #0b1711 52%, #07110b 100%);
+      }
+
+      .stadium-shell {
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        background:
+          linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+        background-size: 40px 40px;
+        mask-image: radial-gradient(circle at center, black 30%, transparent 84%);
+        opacity: 0.25;
+      }
+
+      .page-shell {
+        width: min(1380px, calc(100vw - 28px));
+        margin: 0 auto;
+        padding: 22px 0 44px;
+      }
+
+      .hero,
+      .panel {
+        position: relative;
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-xl);
+        background: linear-gradient(180deg, rgba(16, 35, 24, 0.96), rgba(9, 21, 14, 0.94));
+        box-shadow: var(--shadow);
+      }
+
+      .hero {
+        padding: 28px;
+        margin-bottom: 24px;
+      }
+
+      .hero::before,
+      .panel::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent 22%);
+        pointer-events: none;
+      }
+
+      .hero::after {
+        content: "";
+        position: absolute;
+        right: -10%;
+        bottom: -26%;
+        width: 440px;
+        aspect-ratio: 1;
+        border-radius: 50%;
+        background: radial-gradient(circle, rgba(127, 240, 142, 0.18), rgba(127, 240, 142, 0.02) 60%, transparent 72%);
+        filter: blur(12px);
+      }
+
+      .hero-topbar,
+      .hero-main,
+      .dashboard-grid,
+      .panel-header,
+      .hero-scoreboard,
+      .form-footer,
+      .probability-row,
+      .latest-meta,
+      .snapshot-ribbon,
+      .ledger-head,
+      .ledger-row {
+        display: grid;
+        gap: 16px;
+      }
+
+      .hero-topbar {
+        grid-template-columns: 1fr auto auto;
+        align-items: center;
+        margin-bottom: 28px;
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+      }
+
+      .brand-mark {
+        width: 54px;
+        height: 54px;
+        display: grid;
+        place-items: center;
+        border-radius: 16px;
+        font-weight: 800;
+        color: #061009;
+        background: linear-gradient(135deg, var(--green), #cff993);
+        box-shadow: 0 12px 28px rgba(127, 240, 142, 0.28);
+      }
+
+      .brand-copy strong {
+        display: block;
+        margin-top: 4px;
+        font-size: 17px;
+      }
+
+      .eyebrow,
+      .mini-label {
+        text-transform: uppercase;
+        letter-spacing: 0.18em;
+        font-size: 11px;
+        color: var(--muted);
+      }
+
+      .hero-nav {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+
+      .hero-nav a,
+      .chip,
+      .status-board,
+      .prediction-badge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 999px;
+        text-decoration: none;
+        color: inherit;
+      }
+
+      .hero-nav a {
+        padding: 11px 16px;
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.03);
+        font-weight: 700;
+      }
+
+      .status-board {
+        gap: 10px;
+        padding: 12px 16px;
+        border: 1px solid rgba(127, 240, 142, 0.24);
+        background: rgba(127, 240, 142, 0.08);
+        color: var(--green);
+        font-size: 13px;
+      }
+
+      .status-dot {
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        background: currentColor;
+      }
+
+      .hero-main {
+        grid-template-columns: 1.1fr 0.9fr;
+        align-items: end;
+      }
+
+      .hero-copy h1 {
+        margin: 10px 0 14px;
+        font-family: "Iowan Old Style", "Palatino Linotype", serif;
+        font-size: clamp(40px, 7vw, 78px);
+        line-height: 0.95;
+        max-width: 10ch;
+      }
+
+      .hero-text {
+        max-width: 58ch;
+        margin: 0;
+        color: #c8d4cb;
+        font-size: 18px;
+        line-height: 1.65;
+      }
+
+      .hero-scoreboard {
+        grid-template-columns: repeat(3, 1fr);
+      }
+
+      .score-panel {
+        padding: 18px;
+        border-radius: 22px;
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.03);
+      }
+
+      .score-panel strong {
+        display: block;
+        margin-top: 8px;
+        font-size: 24px;
+        font-family: "Iowan Old Style", "Palatino Linotype", serif;
+      }
+
+      .dashboard-grid {
+        grid-template-columns: 1.15fr 0.85fr;
+      }
+
+      .timeline-panel {
+        grid-column: 1 / -1;
+      }
+
+      .panel {
+        padding: 24px;
+      }
+
+      .panel-header {
+        grid-template-columns: 1fr auto;
+        align-items: start;
+        margin-bottom: 18px;
+      }
+
+      .panel h2 {
+        margin: 6px 0 0;
+        font-size: 30px;
+        font-family: "Iowan Old Style", "Palatino Linotype", serif;
+      }
+
+      .chip {
+        padding: 8px 12px;
+        background: rgba(127, 240, 142, 0.1);
+        border: 1px solid rgba(127, 240, 142, 0.2);
+        color: var(--green);
+        font-size: 12px;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+      }
+
+      .chip.ghost {
+        color: var(--amber);
+        border-color: rgba(247, 195, 90, 0.18);
+        background: rgba(247, 195, 90, 0.08);
+      }
+
+      .pitch {
+        position: relative;
+        display: grid;
+        grid-template-columns: 1fr 88px 1fr;
+        gap: 20px;
+        padding: 28px;
+        border-radius: 28px;
+        border: 1px solid rgba(127, 240, 142, 0.14);
+        background:
+          linear-gradient(180deg, rgba(26, 80, 42, 0.35), rgba(9, 35, 18, 0.4)),
+          repeating-linear-gradient(
+            90deg,
+            rgba(133, 214, 139, 0.08) 0,
+            rgba(133, 214, 139, 0.08) 8%,
+            rgba(70, 130, 75, 0.1) 8%,
+            rgba(70, 130, 75, 0.1) 16%
+          );
+      }
+
+      .pitch-line.center {
+        position: absolute;
+        left: 50%;
+        top: 22px;
+        bottom: 22px;
+        width: 1px;
+        background: rgba(239, 247, 240, 0.2);
+        transform: translateX(-50%);
+      }
+
+      .pitch-circle {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 140px;
+        height: 140px;
+        border-radius: 50%;
+        border: 1px solid rgba(239, 247, 240, 0.18);
+        transform: translate(-50%, -50%);
+      }
+
+      .team-card {
+        position: relative;
+        z-index: 1;
+        padding: 20px;
+        border-radius: 24px;
+        border: 1px solid rgba(239, 247, 240, 0.08);
+        background: rgba(8, 22, 13, 0.72);
+        backdrop-filter: blur(16px);
+      }
+
+      .team-card-head,
+      .snapshot-controls,
+      .timeline-meta {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+
+      .side-tag {
+        padding: 8px 10px;
+        border-radius: 999px;
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+      }
+
+      .side-tag.home {
+        background: rgba(127, 240, 142, 0.12);
+        color: var(--green);
+      }
+
+      .side-tag.away {
+        background: rgba(247, 195, 90, 0.12);
+        color: var(--amber);
+      }
+
+      label {
+        display: grid;
+        gap: 8px;
+        margin-top: 16px;
+      }
+
+      label span {
+        font-size: 13px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--muted);
+      }
+
+      input,
+      select {
+        width: 100%;
+        padding: 15px 16px;
+        border-radius: 16px;
+        border: 1px solid rgba(239, 247, 240, 0.12);
+        background: rgba(255, 255, 255, 0.04);
+        color: var(--text);
+        font-size: 16px;
+      }
+
+      input:disabled {
+        opacity: 0.48;
+        cursor: not-allowed;
+      }
+
+      select {
+        appearance: none;
+        background-image:
+          linear-gradient(45deg, transparent 50%, var(--green) 50%),
+          linear-gradient(135deg, var(--green) 50%, transparent 50%);
+        background-position:
+          calc(100% - 22px) calc(50% - 3px),
+          calc(100% - 16px) calc(50% - 3px);
+        background-size: 6px 6px, 6px 6px;
+        background-repeat: no-repeat;
+        cursor: pointer;
+      }
+
+      .mode-option {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 16px;
+        padding: 10px 12px;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.03);
+      }
+
+      .mode-option input {
+        width: auto;
+        margin: 0;
+        appearance: auto;
+        accent-color: var(--green);
+        cursor: pointer;
+      }
+
+      .mode-option input {
+        width: auto;
+        margin: 0;
+      }
+
+      .versus-marker {
+        display: grid;
+        place-items: center;
+        z-index: 1;
+      }
+
+      .versus-marker span {
+        width: 64px;
+        height: 64px;
+        display: grid;
+        place-items: center;
+        border-radius: 50%;
+        border: 1px solid rgba(247, 195, 90, 0.22);
+        background: radial-gradient(circle, rgba(247, 195, 90, 0.18), rgba(247, 195, 90, 0.05));
+        color: var(--amber);
+        font-family: "Iowan Old Style", "Palatino Linotype", serif;
+      }
+
+      .helper-copy,
+      .latest-meta,
+      .timeline-snapshots,
+      .muted {
+        color: var(--muted);
+      }
+
+      .form-footer {
+        grid-template-columns: 1fr auto;
+        align-items: center;
+        margin-top: 18px;
+      }
+
+      .primary-button {
+        padding: 15px 20px;
+        border: 0;
+        border-radius: 999px;
+        background: linear-gradient(135deg, var(--green), #d2ff90);
+        color: #06110b;
+        font-weight: 800;
+      }
+
+      .latest-card {
+        display: grid;
+        gap: 16px;
+        padding: 22px;
+        border-radius: 24px;
+        border: 1px solid rgba(127, 240, 142, 0.16);
+        background: linear-gradient(180deg, rgba(17, 39, 28, 0.94), rgba(9, 22, 15, 0.94));
+      }
+
+      .latest-topline,
+      .probability-row,
+      .latest-meta,
+      .snapshot-ribbon {
+        grid-template-columns: repeat(2, 1fr);
+      }
+
+      .latest-fixture {
+        font-size: 30px;
+        font-family: "Iowan Old Style", "Palatino Linotype", serif;
+      }
+
+      .latest-fixture em {
+        font-style: normal;
+        color: var(--muted);
+      }
+
+      .prediction-badge {
+        min-width: 52px;
+        padding: 10px 16px;
+        background: var(--text);
+        color: #07110b;
+        font-weight: 800;
+      }
+
+      .probability-pill,
+      .snapshot-box {
+        padding: 16px;
+        border-radius: 18px;
+        border: 1px solid rgba(239, 247, 240, 0.08);
+        background: rgba(255, 255, 255, 0.03);
+      }
+
+      .probability-pill strong,
+      .snapshot-box strong {
+        display: block;
+        margin-top: 8px;
+        font-size: 22px;
+      }
+
+      .timeline-list,
+      .ledger-list {
+        display: grid;
+        gap: 14px;
+      }
+
+      .timeline-item {
+        display: grid;
+        grid-template-columns: 60px 1fr;
+        gap: 14px;
+        align-items: start;
+        padding: 14px;
+        border-radius: 22px;
+        border: 1px solid rgba(239, 247, 240, 0.08);
+        background: rgba(255, 255, 255, 0.03);
+      }
+
+      .timeline-minute {
+        display: grid;
+        place-items: center;
+        height: 52px;
+        border-radius: 16px;
+        background: linear-gradient(135deg, rgba(127, 240, 142, 0.18), rgba(127, 240, 142, 0.06));
+        color: var(--green);
+        font-weight: 800;
+      }
+
+      .timeline-title,
+      .fixture-label {
+        font-size: 18px;
+        font-weight: 700;
+      }
+
+      .ledger-head {
+        grid-template-columns: 1.2fr 1fr 0.5fr 1fr;
+        padding: 0 2px 12px;
+        border-bottom: 1px solid var(--line);
+        color: var(--muted);
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.14em;
+      }
+
+      .ledger-row {
+        align-items: center;
+        grid-template-columns: 1.2fr 1fr 0.5fr 1fr;
+        padding: 16px 18px;
+        border-radius: 18px;
+        border: 1px solid rgba(239, 247, 240, 0.06);
+        background: rgba(255, 255, 255, 0.03);
+      }
+
+      @media (max-width: 1120px) {
+        .hero-main,
+        .dashboard-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      @media (max-width: 860px) {
+        .page-shell {
+          width: min(100vw - 18px, 100%);
+          padding-top: 10px;
+        }
+
+        .hero,
+        .panel {
+          padding: 18px;
+          border-radius: 24px;
+        }
+
+        .hero-topbar,
+        .form-footer,
+        .hero-main,
+        .hero-scoreboard,
+        .pitch,
+        .latest-topline,
+        .probability-row,
+        .latest-meta,
+        .snapshot-ribbon,
+        .ledger-head,
+        .ledger-row {
+          grid-template-columns: 1fr;
+        }
+
+        .pitch-circle,
+        .pitch-line.center {
+          display: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="stadium-shell"></div>
+    <div class="page-shell">
+      <header class="hero">
+        <div class="hero-topbar">
+          <div class="brand">
+            <span class="brand-mark">MB</span>
+            <span class="brand-copy">
+              <span class="eyebrow">Premier League Snapshot Engine</span>
+              <strong>Match Board</strong>
+            </span>
+          </div>
+          <nav class="hero-nav">
+            <a href="#predict">Predict</a>
+            <a href="#timeline">Timeline</a>
+            <a href="#archive">Archive</a>
+          </nav>
+          <div class="status-board">
+            <span class="status-dot"></span>
+            Model Ready
+          </div>
+        </div>
+
+        <div class="hero-main">
+          <div class="hero-copy">
+            <p class="eyebrow">Football-first workflow</p>
+            <h1>Compare any two EPL team snapshots.</h1>
+            <p class="hero-text">
+              Use club identity and time context together. Keep one side live with <strong>now</strong>, or pit
+              <strong>Arsenal in Jan 2025</strong> against <strong>Manchester United in May 2023</strong>.
+            </p>
+          </div>
+          <div class="hero-scoreboard">
+            <div class="score-panel">
+              <span class="mini-label">Input mode</span>
+              <strong>Team + month</strong>
+            </div>
+            <div class="score-panel">
+              <span class="mini-label">Features</span>
+              <strong>Form, H2H, rest</strong>
+            </div>
+            <div class="score-panel">
+              <span class="mini-label">Prediction mode</span>
+              <strong>Snapshot compare</strong>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <main class="dashboard-grid">
+        <section class="panel" id="predict">
+          <div class="panel-header">
+            <div>
+              <p class="mini-label">Prediction console</p>
+              <h2>Build a matchup from two team snapshots</h2>
+            </div>
+            <div class="chip">Stored to timeline</div>
+          </div>
+
+          <div class="pitch">
+            <div class="pitch-line center"></div>
+            <div class="pitch-circle"></div>
+
+            <section class="team-card">
+              <div class="team-card-head">
+                <span class="side-tag home">Home side</span>
+                <span class="mini-label">Snapshot A</span>
+              </div>
+              <label>
+                <span>Club</span>
+                <select>
+                  <option>Select a club</option>
+                  <option selected>Arsenal</option>
+                  <option>Man United</option>
+                  <option>Chelsea</option>
+                  <option>Liverpool</option>
+                  <option>Tottenham</option>
+                </select>
+              </label>
+              <div class="snapshot-controls">
+                <label class="mode-option"><input type="radio" name="home_mode"><span>Now</span></label>
+                <label class="mode-option"><input type="radio" name="home_mode" checked><span>Historical month</span></label>
+              </div>
+              <label>
+                <span>Month</span>
+                <input type="month" value="2025-01">
+              </label>
+            </section>
+
+            <div class="versus-marker"><span>VS</span></div>
+
+            <section class="team-card">
+              <div class="team-card-head">
+                <span class="side-tag away">Away side</span>
+                <span class="mini-label">Snapshot B</span>
+              </div>
+              <label>
+                <span>Club</span>
+                <select>
+                  <option>Select a club</option>
+                  <option>Arsenal</option>
+                  <option selected>Man United</option>
+                  <option>Chelsea</option>
+                  <option>Liverpool</option>
+                  <option>Tottenham</option>
+                </select>
+              </label>
+              <div class="snapshot-controls">
+                <label class="mode-option"><input type="radio" name="away_mode" checked><span>Now</span></label>
+                <label class="mode-option"><input type="radio" name="away_mode"><span>Historical month</span></label>
+              </div>
+              <label>
+                <span>Month</span>
+                <input type="month" value="" disabled>
+              </label>
+            </section>
+          </div>
+
+          <div class="form-footer">
+            <p class="helper-copy">
+              Historical snapshots are read at month-end. The board then builds each team’s recent form before that
+              point and compares them through one aligned feature schema.
+            </p>
+            <button class="primary-button">Predict Winning Probability</button>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <div>
+              <p class="mini-label">Latest stored result</p>
+              <h2>Match card</h2>
+            </div>
+            <div class="chip ghost">Auto saved</div>
+          </div>
+
+          <div class="latest-card">
+            <div class="latest-topline">
+              <span>Jan 2025</span>
+              <span>May 2023</span>
+            </div>
+            <div class="latest-fixture">Arsenal <em>vs</em> Man United</div>
+            <div class="prediction-badge">H</div>
+            <div class="probability-row">
+              <div class="probability-pill">
+                <span>Home win</span>
+                <strong>52%</strong>
+              </div>
+              <div class="probability-pill">
+                <span>Draw</span>
+                <strong>24%</strong>
+              </div>
+              <div class="probability-pill">
+                <span>Away win</span>
+                <strong>24%</strong>
+              </div>
+            </div>
+            <div class="latest-meta">
+              <span>Reference 2025-01-31</span>
+              <span>Saved 2026-04-06 14:42</span>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel timeline-panel" id="timeline">
+          <div class="panel-header">
+            <div>
+              <p class="mini-label">Live event feed</p>
+              <h2>Prediction timeline</h2>
+            </div>
+            <div class="chip">Refreshes every 15s</div>
+          </div>
+
+          <div class="timeline-list">
+            <div class="timeline-item">
+              <div class="timeline-minute">1</div>
+              <div>
+                <div class="timeline-title">Arsenal vs Man United</div>
+                <div class="timeline-snapshots">Jan 2025 | May 2023</div>
+                <div class="muted">Prediction H | Saved 2026-04-06 14:42</div>
+              </div>
+            </div>
+            <div class="timeline-item">
+              <div class="timeline-minute">2</div>
+              <div>
+                <div class="timeline-title">Liverpool vs Chelsea</div>
+                <div class="timeline-snapshots">Now | Mar 2024</div>
+                <div class="muted">Prediction D | Saved 2026-04-06 13:18</div>
+              </div>
+            </div>
+            <div class="timeline-item">
+              <div class="timeline-minute">3</div>
+              <div>
+                <div class="timeline-title">Newcastle vs Brighton</div>
+                <div class="timeline-snapshots">Now | Now</div>
+                <div class="muted">Prediction H | Saved 2026-04-06 11:54</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel timeline-panel" id="archive">
+          <div class="panel-header">
+            <div>
+              <p class="mini-label">Prediction archive</p>
+              <h2>Stored matchup ledger</h2>
+            </div>
+            <div class="chip">124 records</div>
+          </div>
+
+          <div class="ledger-head">
+            <span>Fixture</span>
+            <span>Snapshots</span>
+            <span>Prediction</span>
+            <span>Saved</span>
+          </div>
+
+          <div class="ledger-row">
+            <span class="fixture-label">Arsenal vs Man United</span>
+            <span>Jan 2025 / May 2023</span>
+            <span>H</span>
+            <span>2026-04-06 14:42</span>
+          </div>
+          <div class="ledger-row">
+            <span class="fixture-label">Liverpool vs Chelsea</span>
+            <span>Now / Mar 2024</span>
+            <span>D</span>
+            <span>2026-04-06 13:18</span>
+          </div>
+          <div class="ledger-row">
+            <span class="fixture-label">Newcastle vs Brighton</span>
+            <span>Now / Now</span>
+            <span>H</span>
+            <span>2026-04-06 11:54</span>
+          </div>
+        </section>
+      </main>
+    </div>
+  </body>
+</html>
